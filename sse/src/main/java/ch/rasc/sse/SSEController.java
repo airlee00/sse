@@ -20,7 +20,7 @@ public class SSEController {
 	private  final Logger log = LoggerFactory.getLogger(SSEController.class);
 
   private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
-  private final CopyOnWriteArrayList<HashMap<String, SseEmitter>> emi = new CopyOnWriteArrayList<>();
+  private final HashMap<String, CopyOnWriteArrayList<SseEmitter>> emi = new HashMap<> ();
  // private final HashMap<String, SseEmitter> emi = new HashMap<>();
 
   @GetMapping("/memory")
@@ -47,10 +47,17 @@ public class SSEController {
       HashMap<String, SseEmitter> m = new HashMap<String, SseEmitter>();
       m.put(app, emitter);
 
-	  this.emi.add(m);
+      if(this.emi.containsKey(app) ) {
+    	  this.emi.get(app).add(emitter);
+      } else {
+    	  CopyOnWriteArrayList value =  new CopyOnWriteArrayList();
+    	  value.add(emitter);
+    	  this.emi.put(app, value);
 
-	  emitter.onCompletion(() -> this.emi.remove(emitter));
-	  emitter.onTimeout(() -> this.emi.remove(emitter));
+      }
+
+	  emitter.onCompletion(() -> this.emi.remove(app));
+	  emitter.onTimeout(() -> this.emi.remove(app));
 
 	  return emitter;
   }
@@ -58,32 +65,21 @@ public class SSEController {
   @EventListener
   public void onMemoryInfo22(MemoryInfo2 memoryInfo) {
 	  log.info("==onMemoryInfo22===>{}", memoryInfo);
-	  List<HashMap> deadEmitters = new ArrayList<>();
-	  this.emi.forEach(m -> {
-		  m.forEach( (k,v) -> {
 
-			  if(k.equals(memoryInfo.getId())) {
-				  SseEmitter e = m.get(memoryInfo.getId());
-				  log.info("==onMemoryInfo22===>{}", e);
-				  try {
-				        e.send(memoryInfo);
-
-				        // close connnection, browser automatically reconnects
-				        e.complete();
-
-				        //SseEventBuilder builder = SseEmitter.event().name("second").data("1");
-				        // SseEventBuilder builder =
-				        // SseEmitter.event().reconnectTime(10_000L).data(memoryInfo).id("1");
-				        // emitter.send(builder);
-				      }
-				      catch (Exception ee) {
-				    	  deadEmitters.add(m);
-				      }
+	  List<SseEmitter> deadEmitters = new ArrayList<>();
+	  List<SseEmitter> list = this.emi.get(memoryInfo.getId());
+	  if(list != null) {
+		  list.forEach(emitter -> {
+			  try {
+				  emitter.send(memoryInfo);
+			  }
+			  catch (Exception e) {
+				  deadEmitters.add(emitter);
 			  }
 		  });
-	  });
+	  }
+	  this.emitters.removeAll(deadEmitters);
 
-	  this.emi.removeAll(deadEmitters);
 
   }
   @EventListener
